@@ -1,96 +1,139 @@
 import wave
 from graphics import *
 import numpy
-import struct
 import math
+import array
 
 def main():
+# ************ #
+#     make sure I'm getting the samples 
 #     speech = wave.open("si762.wav")
-#     nframes = speech.getnframes()
-#     
+#     n_samps = speech.getnframes()
 #     window = GraphWin("Speech", 1000, 500)
-#     window.setCoords(0, -10000, nframes, 10000) #setCoords(xll, yll, xur, yur)
+#     window.setCoords(0, -35000, n_samps, 35000) #setCoords(xll, yll, xur, yur)
 #     
-#     by = 250
-#     for i in range(0, nframes/by):
-#         speech.readframes(by-1)
-#         raw = speech.readframes(1)
-#         converted = struct.unpack("<h", raw)
-#         frame = int(converted[0])
-#         point1 = Point(i*by, 0) 
-#         point2 = Point(i*by + .8, frame)
+#     
+#     stream = speech.readframes(n_samps)
+#     stream_converted = array.array('h', stream)
+#     print type(stream_converted)
+#     stream_converted = stream_converted.tolist()
+#     print type(stream_converted)
+#     
+#     print max(stream_converted)
+#     print n_samps
+#     print len(stream_converted)
+#     by = 25
+#     
+#     for i in range(0, n_samps):
+#         frame = stream_converted[i]
+#         point1 = Point(i, 0) 
+#         point2 = Point(i + .8, frame)
 #         rect = Rectangle(point1, point2)
 #         rect.draw(window)
 #     window.getMouse()
-#     window.close()
+#     window.close()  
 #     speech.close()
-    
-    speech = wave.open("o.wav")
-    nframes = speech.getnframes()
-    print nframes
-    window = 25.0
-    sampling_rate = speech.getframerate()
-    samps_per_window = int(sampling_rate*(window/1000))
-    nyquist = samps_per_window/2
-    ms = window/1000.0
-    
-    time_steps = {}
-    window_start = 0
-    max = 0
-    while window_start < (nframes - samps_per_window):
-        samples = []
-        
-        speech.readframes(window_start) # catch up to correct location
-        
-        for i in range(0, samps_per_window):
-            raw = speech.readframes(1)
-            converted = struct.unpack("<h", raw)
-            samples = samples + [int(converted[0])]
-        samples_array = numpy.array(samples)
-        dft_matrix = numpy.fft.fft(samples_array)
+# ************ #
 
+    speech = wave.open("si762.wav")
+    
+    ### define parameters
+    n_samps = speech.getnframes() # total number of samples
+    window_len_ms = 25.0 # window length in milliseconds
+    windowby_ms = 10.0 # milliseconds between consecutive window starting positions 
+    sampling_rate = speech.getframerate() # samples per second
+    samps_per_window = int(sampling_rate*(window_len_ms/1000)) # samples per window
+    windowby_samps = int(sampling_rate*(windowby_ms/1000)) # samples between between consecutive window starting positions
+    nyquist = samps_per_window/2 # nyquist frequency
+    
+    ### read in .wav file as string of bytes, convert to list of usable samples
+    stream = speech.readframes(n_samps)
+    stream_converted = array.array('h', stream)
+    stream_converted = stream_converted.tolist()
+    
+    print "n frames, samps per window, samps per by: "
+    print n_samps, samps_per_window, windowby_samps
+    
+    ### store information about each window's spectrum in dictionary 
+    # index by time step 
+    time_steps = {}
+
+    window_start = 0
+    time_step = 0
+    maximum = 0
+    minimum = 0
+
+    ### perform Discrete Fourier Transfer given samples in each window 
+    # use DFT at each frequency to determine magnitude 
+    while (window_start + samps_per_window) < n_samps:
+#         window_max = 0
+#         window_min = 0
+        print "window start, time step: "
+        print window_start, time_step
+        print "nyquist, window in ms, highest_freq "
+        print nyquist, (window_len_ms/1000.0), nyquist/(window_len_ms/1000.0), int(nyquist/(window_len_ms/1000.0))
+        current_window = stream_converted[window_start : window_start + samps_per_window]
+        dft_values = numpy.fft.fft(current_window)
+        
+        # calculate log magnitude at each frequency
         magnitudes = []
         for i in range(0, nyquist):
-            real = numpy.real(dft_matrix[i])
-            imag = numpy.imag(dft_matrix[i])
-            sq_mag = math.sqrt(math.pow(real, 2) + math.pow(real, 2))
-            mag = 2*sq_mag/samps_per_window
-            log_mag = 10*math.log10(mag)
-            if log_mag > max:
-                max = log_mag
+            real = numpy.real(dft_values[i])
+            imag = numpy.imag(dft_values[i])
+            sq_mag = math.sqrt(math.pow(real, 2) + math.pow(imag, 2))
+            log_mag = 10*math.log10(sq_mag)
+            if log_mag > maximum:
+                maximum = log_mag
+#             if log_mag > window_max:
+#                 window_max = log_mag
+            if log_mag < minimum:
+                minimum = log_mag
+            if log_mag == 0:
+                "I'm 0!!!"
+#             if log_mag < window_min:
+#                 window_max = log_mag
             magnitudes = magnitudes + [log_mag]
-        time_steps[window_start] = magnitudes
-        window_start += 10
-        speech.rewind()
+            
+        # store magnitudes and maximum/minimum on current window 
+        time_steps[time_step] = [magnitudes, max(magnitudes), min(magnitudes)]
+        
+        # increment window_start by number of samples separating each window starting position
+        # increment index for storing magnitudes by 1
+        window_start += windowby_samps
+        time_step += 1
     
-    window = GraphWin("Spectrograph", 1000, 500)
-    bound = nyquist/ms
-    window.setCoords(0, 0, nyquist, bound) #setCoords(xll, yll, xur, yur)
-    print len(time_steps)
-    for i in range(0, len(time_steps)-1):    
-        for j in time_steps[i*10]:
-            print i, j
-            print "-" 
-            freq = j/ms
-            print freq
-            print log_mag
-            print bound
-            print "--"
-            val = 255*(1 - j/log_mag)
+    ### graph spectogram
+    window = GraphWin("Spectrogram", 400, 200)
+    highest_freq = int(nyquist/(window_len_ms/1000.0))
+    window.setCoords(0, 0, time_step, highest_freq) #setCoords(xll, yll, xur, yur)
+    
+    # at each time step, plot all frequencies at gray-scale intensity corresponding to magnitude    
+    for i in range(0, time_step):
+        window_maximum = time_steps[i][1]
+        window_minimum = time_steps[i][2]
+                
+        # spectrum = GraphWin("Spectrum", 400, 200)  
+#         spectrum.setCoords(0, 0, highest_freq, window_maximum)
+#         line = Line(Point(400, 0), Point(400, window_maximum))
+#         line.draw(spectrum)
+
+        for j in range(0, nyquist):
+            mag = time_steps[i][0][j]
+            freq = j/(window_len_ms/1000.0)
+#             val = 255*(1 - j/maximum)
+#             val = 255*((mag - minimum)/(maximum - minimum))
+#             val = 255 - 255*((mag - minimum)/(maximum-minimum))
+            val = 255 - 255*((mag - window_minimum)/(window_maximum-window_minimum))
             window.plot(i, freq, color_rgb(val, val, val))
+            # point1 = Point(freq, 0) 
+#             point2 = Point(freq + 1, mag)
+#             rect = Rectangle(point1, point2)
+#             rect.draw(spectrum)
+#         spectrum.getMouse()
+#         spectrum.close()
+    
     window.getMouse()
     window.close()
-# A black-and-white image, with time along the x-axis, 
-# (where each 10ms window is 1 pixel of width), 
-# frequency along the y-axis and 
-# intensity indicated by the darkness of the pixel, 
-#         with white meaning 0 intensity and 
-#         black meaning maximum intensity.
-
-
-# am I reading the data in correct?
-# what should my upper bound be and nothing is reaching it?
-    
     
     speech.close() 
     
